@@ -1,0 +1,8 @@
+# upstream Omarchy clone — local PR/reference working copy, not published
+omarchy/
+
+# machine-specific golden data (LUKS UUID, package list, efibootmgr output) —
+# regenerates locally via `grub-guard --capture`
+backups/
+
+*.log

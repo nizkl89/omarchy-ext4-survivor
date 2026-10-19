@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# 47_omarchy_uki — chainload Omarchy's UKIs from the ESP.
+#
+# The Limine stack manages this machine's boot artifacts as Unified Kernel
+# Images (ESP:/EFI/Linux/omarchy_linux*.efi); /boot holds no vmlinuz pair and
+# mkinitcpio presets are retired, so grub-mkconfig's stock 10_linux section
+# generates zero entries. This drop-in restores Arch to GRUB's menu by
+# chainloading the current UKIs: GRUB hands off to each .efi stub, which
+# carries kernel + initramfs + cmdline inside itself.
+#
+# Numbered between 10_linux and 30_os-prober so the main Omarchy entry is
+# first among OS entries (GRUB_DEFAULT=0 keeps Arch the default), with the
+# Windows os-prober entry after it.
+
+ESP_DIR="${OMARCHY_ESP_DIR:-/boot/efi}"
+
+esp_uuid="$(findmnt -no UUID "$ESP_DIR" 2>/dev/null || true)"
+if [[ -z $esp_uuid ]]; then
+  # Non-root callers may not resolve UUID through the mount table; ask lsblk.
+  esp_uuid="$(lsblk -rno UUID "$(findmnt -rno SOURCE "$ESP_DIR" 2>/dev/null)" 2>/dev/null | head -1 || true)"
+fi
+if [[ -z $esp_uuid ]]; then
+  exit 0
+fi
+
+# Omarchy also ships *fallback* UKIs (ENABLE_LIMINE_FALLBACK) — rescue copies
+# of the same images. Keep them off the menu: they clutter it with duplicate
+# titles, and the main entries already cover recovery (fallbacks stay on the
+# ESP, bootable via the firmware boot-entry list).
+mapfile -t ukis < <(find "$ESP_DIR/EFI/Linux" -maxdepth 1 -name '*.efi' -printf '%f\n' 2>/dev/null | grep '^omarchy_' | grep -v fallback | sort)
+
+# Sort so omarchy_linux.efi (the running default) precedes feature variants.
+uks_sorted=()
+for u in "${ukis[@]}"; do
+  [[ $u == "omarchy_linux.efi" ]] && uks_sorted+=("$u")
+done
+for u in "${ukis[@]}"; do
+  [[ $u == "omarchy_linux.efi" ]] && continue
+  uks_sorted+=("$u")
+done
+
+((${#uks_sorted[@]} > 0)) || exit 0
+
+echo ""
+
+title_for() {
+  case "$1" in
+    omarchy_linux.efi) echo "Omarchy Linux (UKI)" ;;
+    *-lts.efi) echo "Omarchy Linux LTS (UKI)" ;;
+    *) echo "Omarchy (${1%.efi})" ;;
+  esac
+}
+
+for uki in "${uks_sorted[@]}"; do
+  # First class selects the theme icon (icons/<class>.png): the theme ships
+  # arch.png (Arch logo + baked description), which is what we want showing.
+  cat <<ENTRY
+menuentry '$(title_for "$uki")' --class arch --class omarchy --class gnu-linux --class linux --class os \$menuentry_id_option 'omarchy_uki-${uki%.efi}' {
+	search --no-floppy --fs-uuid --set=root $esp_uuid
+	chainloader /EFI/Linux/$uki
+}
+ENTRY
+done
