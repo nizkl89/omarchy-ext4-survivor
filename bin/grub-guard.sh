@@ -375,7 +375,12 @@ store_files() {  # <dest-dir>: copy the live boot config set into a directory
     as_root install -m 0644 "$HOOKS_CONF_LIVE" "$dest/$(basename "$HOOKS_CONF_LIVE")" 2>/dev/null
   fi
   [[ -f $KERNEL_CMDLINE_LIVE ]] && as_root install -m 0644 "$KERNEL_CMDLINE_LIVE" "$dest/kernel-cmdline" 2>/dev/null
-  as_root sh -c "cp -a '$ENTRY_TOOL_DIR' '$dest/limine-entry-tool.d' 2>/dev/null" || true
+  # Replace any prior copy: `cp -a SRC DEST` nests SRC *inside* DEST when DEST
+  # already exists — which silently created limine-entry-tool.d/limine-entry-tool.d
+  # on every capture after the first, leaving the stale flat copy as the one
+  # --restore and --explain-diff read.
+  as_root rm -rf "$dest/limine-entry-tool.d"
+  as_root sh -c "mkdir -p '$dest/limine-entry-tool.d' && cp -a '$ENTRY_TOOL_DIR/.' '$dest/limine-entry-tool.d/' 2>/dev/null" || true
   [[ -f /etc/default/limine ]] && as_root install -m 0644 /etc/default/limine "$dest/default-limine" 2>/dev/null
   as_root sh -c "efibootmgr > '$dest/efibootmgr.txt'" 2>/dev/null || true
   as_root sh -c "pacman -Q > '$dest/packages.txt'" 2>/dev/null || true
@@ -518,6 +523,9 @@ action_restore() {
       as_root install -m 0644 "$GUARD_SYS_GOLDEN/$f" "$target" 2>/dev/null || true
   done
   if as_root test -d "$GUARD_SYS_GOLDEN/limine-entry-tool.d"; then
+    # Clear a nested copy left by older guard versions before replaying, so
+    # /etc/limine-entry-tool.d never gains a limine-entry-tool.d/ subdirectory.
+    as_root rm -rf "$ENTRY_TOOL_DIR/limine-entry-tool.d"
     as_root cp -a "$GUARD_SYS_GOLDEN/limine-entry-tool.d/." "$ENTRY_TOOL_DIR/" 2>/dev/null || true
   fi
   repair_hooks_conf || true
