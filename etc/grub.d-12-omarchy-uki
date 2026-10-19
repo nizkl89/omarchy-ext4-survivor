@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 47_omarchy_uki — chainload Omarchy's UKIs from the ESP.
+# 12_omarchy_uki — chainload Omarchy's UKIs from the ESP.
 #
 # The Limine stack manages this machine's boot artifacts as Unified Kernel
 # Images (ESP:/EFI/Linux/omarchy_linux*.efi); /boot holds no vmlinuz pair and

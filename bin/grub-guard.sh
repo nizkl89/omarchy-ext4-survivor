@@ -43,9 +43,28 @@ GUARD_SYS_CURRENT="${GUARD_SYS_DIR}/current"
 GUARD_SYS_GOLDEN="${GUARD_SYS_DIR}/golden"
 GUARD_REPO_DIR="${OMARCHY_BOOT_GUARD_REPO:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/backups}"
 
-LOG_FILE="${OMARCHY_BOOT_GUARD_LOG:-$HOME/.local/state/omarchy/grub-guard.log}"
+# Resolve the log path to the *invoking* user's home. `sudo bash grub-guard.sh`
+# runs with HOME=/root, which would otherwise split manual repairs into
+# /root/.local/state/omarchy/grub-guard.log and hide them from the user-facing
+# log (and from the post-update hook's drift check).
+if [[ -n ${OMARCHY_BOOT_GUARD_LOG:-} ]]; then
+  LOG_FILE="$OMARCHY_BOOT_GUARD_LOG"
+else
+  log_home="$HOME"
+  if (( EUID == 0 )) && [[ -n ${SUDO_USER:-} && ${SUDO_USER:-} != root ]]; then
+    log_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+    [[ -n $log_home ]] || log_home="$HOME"
+  fi
+  LOG_FILE="$log_home/.local/state/omarchy/grub-guard.log"
+fi
 
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+# If a sudo-run created the directory/file, hand it back to the invoking user so
+# later wrapper/hook runs (which run as that user) can keep appending.
+if (( EUID == 0 )) && [[ -n ${SUDO_USER:-} && ${SUDO_USER:-} != root ]]; then
+  chown "$SUDO_USER:" "$(dirname "$LOG_FILE")" 2>/dev/null || true
+  [[ -f $LOG_FILE ]] && chown "$SUDO_USER:" "$LOG_FILE" 2>/dev/null || true
+fi
 
 log()  { printf '%s  [grub-guard] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"; }
 warn() { printf '%s  [grub-guard] WARN %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE" >&2; }
